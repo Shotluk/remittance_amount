@@ -1,23 +1,18 @@
-import logo from './logo.svg';
-import './App.css';
+// App.js
+import ExcelMatcher from './ExcelMatcher'; // Adjust path as needed
 
 function App() {
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+      <header className="bg-gray-800 text-white p-4">
+        <h1 className="text-xl font-bold">My Application</h1>
       </header>
+      
+      <main className="container mx-auto py-6 px-4">
+        <ExcelMatcher />
+      </main>
+      
+      
     </div>
   );
 }
