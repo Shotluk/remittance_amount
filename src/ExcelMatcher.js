@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 // Header detection functions
 const evaluateConsistencyOfFollowingRows = (jsonData, headerRowIndex) => {
@@ -444,51 +445,102 @@ export default function ExcelMatcher() {
     });
   };
 
-  const downloadExcelFile = (data, filename, sheetName) => {
+  const downloadExcelFile = async (data, filename, sheetName) => {
     if (!data || data.length === 0) {
       setError(`No ${sheetName} data to download`);
       return;
     }
 
     try {
-      // Create workbook and worksheet
-      const workbook = XLSX.utils.book_new();
+      // Dynamic import of ExcelJS
+      const ExcelJS = await import('exceljs');
+      
+      // Create a new workbook
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet(sheetName);
       
       // Get headers
       const headers = Object.keys(data[0]);
       
-      // Create worksheet from the data
-      const worksheet = XLSX.utils.json_to_sheet(data, {
-        header: headers,
-        skipHeader: false
+      // Add headers to worksheet
+      worksheet.addRow(headers);
+      
+      // Style the header row
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFCCCCCC' }
+      };
+      
+      // Add data rows
+      data.forEach((row, index) => {
+        const rowData = headers.map(header => row[header]);
+        worksheet.addRow(rowData);
+        
+        // Apply color coding to Remit Amt column
+        const currentRow = worksheet.getRow(index + 2); // +2 because Excel is 1-indexed and we have a header
+        const remitAmtColIndex = headers.indexOf('Remit Amt');
+        const amtColIndex = headers.indexOf('Amt');
+        
+        if (remitAmtColIndex !== -1 && amtColIndex !== -1) {
+          const amtValue = parseFloat(row['Amt']) || 0;
+          const remitAmtValue = parseFloat(row['Remit Amt']) || 0;
+          
+          const remitAmtCell = currentRow.getCell(remitAmtColIndex + 1); // +1 because Excel is 1-indexed
+          
+          if (remitAmtValue < (amtValue * 0.5)) {
+            // Yellow background for less than 50%
+            remitAmtCell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFFFF00' } // Yellow
+            };
+          } else {
+            // Green background for 50% or more
+            remitAmtCell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FF90EE90' } // Light Green
+            };
+          }
+        }
       });
       
-      // Make header row bold
-      const headerRange = XLSX.utils.decode_range(worksheet['!ref']);
-      for (let C = headerRange.s.c; C <= headerRange.e.c; ++C) {
-        const cell = XLSX.utils.encode_cell({ r: 0, c: C });
-        if (!worksheet[cell]) continue;
-        worksheet[cell].s = { font: { bold: true } };
-      }
-      
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-      
-      // Write file with options to preserve formatting
-      XLSX.writeFile(workbook, filename, { 
-        bookType: 'xlsx',
-        bookSST: false,
-        type: 'binary',
-        cellStyles: true
+      // Auto-fit columns
+      worksheet.columns.forEach((column, index) => {
+        let maxLength = headers[index] ? headers[index].length : 10;
+        data.forEach(row => {
+          const cellValue = row[headers[index]];
+          if (cellValue) {
+            maxLength = Math.max(maxLength, cellValue.toString().length);
+          }
+        });
+        column.width = Math.min(maxLength + 2, 50); // Cap at 50 characters
       });
       
-      setStatus(`${sheetName} downloaded successfully!`);
+      // Generate Excel file buffer
+      const buffer = await workbook.xlsx.writeBuffer();
+      
+      // Create blob and download
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      
+      setStatus(`${sheetName} downloaded successfully with color coding!`);
     } catch (error) {
       console.error(`Error creating Excel file for ${sheetName}:`, error);
       setError(`Error creating Excel file for ${sheetName}: ${error.message}`);
     }
   };
-
   const downloadMatchedData = () => {
     downloadExcelFile(matchedData, 'matched_records.xlsx', 'Matched Records');
   };
@@ -644,11 +696,27 @@ export default function ExcelMatcher() {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {matchedData.slice(0, 5).map((row, rowIndex) => (
                         <tr key={rowIndex}>
-                          {Object.values(row).map((value, cellIndex) => (
-                            <td key={cellIndex} className="px-4 py-2 text-sm text-gray-500 truncate max-w-xs">
-                              {value !== null && value !== undefined ? value.toString() : ''}
-                            </td>
-                          ))}
+                          {Object.entries(row).map(([header, value], cellIndex) => {
+                            // Color coding logic for Remit Amt column
+                            let cellStyle = "px-4 py-2 text-sm text-gray-500 truncate max-w-xs";
+                            
+                            if (header === 'Remit Amt') {
+                              const amtValue = parseFloat(row['Amt']) || 0;
+                              const remitAmtValue = parseFloat(value) || 0;
+                              
+                              if (remitAmtValue < (amtValue * 0.5)) {
+                                cellStyle += " bg-yellow-200"; // Less than 50% - Yellow
+                              } else {
+                                cellStyle += " bg-green-200"; // 50% or more - Green
+                              }
+                            }
+                            
+                            return (
+                              <td key={cellIndex} className={cellStyle}>
+                                {value !== null && value !== undefined ? value.toString() : ''}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
